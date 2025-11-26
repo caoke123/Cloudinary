@@ -1,0 +1,5 @@
+{
+  "name": "Cloudinary Pro Uploader",
+  "description": "A modern, high-performance image optimization and upload tool for Cloudinary with WebP conversion.",
+  "requestFramePermissions": []
+}
