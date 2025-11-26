@@ -1,5 +1,5 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
-import { v4 as uuidv4 } from 'uuid'; // Since we can't use uuid package directly in this prompt env, I will mock it or use a simple random string generator in a real scenario. For this output, I'll use a simple helper.
 import { Image as ImageIcon, Settings, Trash2, CheckCircle } from 'lucide-react';
 
 import DropZone from './components/DropZone';
@@ -10,24 +10,78 @@ import { uploadToCloudinary } from './services/cloudinaryService';
 
 // Simple UUID generator replacement
 const generateId = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+const STORAGE_KEY = 'cloudinary_uploader_history_v1';
 
 const App: React.FC = () => {
-  // Environment-based config
+  // Hardcoded config from Python script
   const [config] = useState<CloudinaryConfig>({
-    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'caoke',
-    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'ecommerce-free',
-    folder: import.meta.env.VITE_CLOUDINARY_FOLDER || 'products'
+    cloudName: 'caoke',
+    uploadPreset: 'ecommerce-free',
+    folder: 'products'
   });
 
   const [files, setFiles] = useState<ProcessedFile[]>([]);
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
   const [copyAllStatus, setCopyAllStatus] = useState<'idle' | 'copied'>('idle');
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // 1. Load from LocalStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed: ProcessedFile[] = JSON.parse(saved);
+        // Sanitize loaded data:
+        // - Blob URLs (previewUrl) are invalid after reload, so use cloudinaryUrl as preview
+        // - originalFile needs to be a plain object since we can't restore File objects
+        const hydrated = parsed.map(f => ({
+          ...f,
+          previewUrl: f.cloudinaryUrl || '', // Fallback to cloudinary URL
+          status: f.status === ProcessStatus.PROCESSING || f.status === ProcessStatus.UPLOADING 
+            ? ProcessStatus.ERROR // Pending tasks can't be resumed easily without file handle
+            : f.status,
+          errorMsg: f.status === ProcessStatus.PROCESSING || f.status === ProcessStatus.UPLOADING 
+            ? 'Interrupted by reload' 
+            : f.errorMsg
+        }));
+        setFiles(hydrated);
+      }
+    } catch (e) {
+      console.error("Failed to load history", e);
+    } finally {
+      setIsLoaded(true);
+    }
+  }, []);
+
+  // 2. Save to LocalStorage whenever files change
+  useEffect(() => {
+    if (!isLoaded) return; // Don't save before initial load
+
+    // We only save COMPLETED or ERROR files.
+    // We cannot save PENDING/PROCESSING properly because we lose the File object.
+    const filesToSave = files.filter(f => 
+      f.status === ProcessStatus.COMPLETED || f.status === ProcessStatus.ERROR
+    ).map(f => ({
+      ...f,
+      // We can't stringify a File object, so we store a metadata object
+      originalFile: {
+        name: f.originalFile.name,
+        size: f.originalFile.size,
+        type: f.originalFile.type
+      },
+      // Blob URLs (previewUrl) cannot be saved.
+      // If completed, we will use cloudinaryUrl as preview on reload.
+      previewUrl: f.status === ProcessStatus.COMPLETED ? f.cloudinaryUrl : ''
+    }));
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(filesToSave));
+  }, [files, isLoaded]);
 
   // Handle dropped files
   const handleFilesDropped = useCallback((newFiles: File[]) => {
     const newProcessedFiles: ProcessedFile[] = newFiles.map(file => ({
       id: generateId(),
-      originalFile: file,
+      originalFile: file, // This is a real File object
       previewUrl: URL.createObjectURL(file),
       status: ProcessStatus.PENDING,
       progress: 0,
@@ -50,6 +104,11 @@ const App: React.FC = () => {
         // Update status to processing
         updateFileStatus(pendingFile.id, { status: ProcessStatus.PROCESSING, progress: 10 });
 
+        // Check if originalFile is a real File (it might be a plain object if restored from storage, but those shouldn't be PENDING)
+        if (!(pendingFile.originalFile instanceof File)) {
+          throw new Error("Cannot process restored file");
+        }
+
         // 1. Image Processing (Resize & WebP)
         const { blob, dimensions } = await processImage(pendingFile.originalFile);
         updateFileStatus(pendingFile.id, { 
@@ -65,7 +124,9 @@ const App: React.FC = () => {
         updateFileStatus(pendingFile.id, {
           status: ProcessStatus.COMPLETED,
           progress: 100,
-          cloudinaryUrl: result.secure_url
+          cloudinaryUrl: result.secure_url,
+          // Update previewUrl to the remote one so it persists after reload
+          previewUrl: result.secure_url 
         });
 
       } catch (error: any) {
@@ -88,11 +149,14 @@ const App: React.FC = () => {
   };
 
   const handleClearCompleted = () => {
+    // Also clears from local storage due to the useEffect hook
     setFiles(prev => prev.filter(f => f.status !== ProcessStatus.COMPLETED && f.status !== ProcessStatus.ERROR));
   };
 
   const handleCopyAll = () => {
-    const urls = files
+    // Use reversed order to match the visual display (Newest First)
+    const urls = [...files]
+      .reverse()
       .filter(f => f.status === ProcessStatus.COMPLETED && f.cloudinaryUrl)
       .map(f => f.cloudinaryUrl)
       .join('\n');
@@ -150,9 +214,9 @@ const App: React.FC = () => {
                <button
                 onClick={handleCopyAll}
                 className={`
-                  flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all
+                  flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300
                   ${copyAllStatus === 'copied' 
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'}
                 `}
               >
@@ -171,7 +235,7 @@ const App: React.FC = () => {
           )}
 
           {/* Results Grid */}
-          <ResultList files={files} />
+          <ResultList files={[...files].reverse()} />
         </main>
       </div>
     </div>

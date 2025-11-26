@@ -1,5 +1,6 @@
-import React from 'react';
-import { CheckCircle2, AlertCircle, Loader2, Copy, ExternalLink, FileJson } from 'lucide-react';
+
+import React, { useState } from 'react';
+import { CheckCircle2, AlertCircle, Loader2, Copy, ExternalLink, Check } from 'lucide-react';
 import { ProcessedFile, ProcessStatus } from '../types';
 
 interface ResultListProps {
@@ -7,9 +8,16 @@ interface ResultListProps {
 }
 
 const ResultList: React.FC<ResultListProps> = ({ files }) => {
-  const copyToClipboard = (text: string) => {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
-    // Could add toast notification here
+    setCopiedId(id);
+    
+    // 2秒后重置状态
+    setTimeout(() => {
+      setCopiedId(null);
+    }, 2000);
   };
 
   if (files.length === 0) return null;
@@ -62,7 +70,7 @@ const ResultList: React.FC<ResultListProps> = ({ files }) => {
             {/* Info Area */}
             <div className="p-4 space-y-3">
               <div className="flex justify-between items-start">
-                <div className="truncate pr-2">
+                <div className="truncate pr-2 w-full">
                   <h4 className="text-sm font-medium text-slate-200 truncate" title={file.originalFile.name}>
                     {file.originalFile.name}
                   </h4>
@@ -103,10 +111,23 @@ const ResultList: React.FC<ResultListProps> = ({ files }) => {
               {file.status === ProcessStatus.COMPLETED && file.cloudinaryUrl && (
                 <div className="pt-2 flex items-center gap-2">
                   <button
-                    onClick={() => copyToClipboard(file.cloudinaryUrl!)}
-                    className="flex-1 flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                    onClick={() => copyToClipboard(file.cloudinaryUrl!, file.id)}
+                    className={`
+                      flex-1 flex items-center justify-center gap-2 text-xs font-medium py-2 rounded-lg transition-all duration-200
+                      ${copiedId === file.id 
+                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' 
+                        : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}
+                    `}
                   >
-                    <Copy className="w-3.5 h-3.5" /> 复制链接
+                    {copiedId === file.id ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> 已复制
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" /> 复制链接
+                      </>
+                    )}
                   </button>
                   <a
                     href={file.cloudinaryUrl}
