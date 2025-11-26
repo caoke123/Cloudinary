@@ -12,11 +12,11 @@ import { uploadToCloudinary } from './services/cloudinaryService';
 const generateId = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
 const App: React.FC = () => {
-  // Hardcoded config from Python script
+  // Environment-based config
   const [config] = useState<CloudinaryConfig>({
-    cloudName: 'caoke',
-    uploadPreset: 'ecommerce-free',
-    folder: 'products'
+    cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'caoke',
+    uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'ecommerce-free',
+    folder: import.meta.env.VITE_CLOUDINARY_FOLDER || 'products'
   });
 
   const [files, setFiles] = useState<ProcessedFile[]>([]);
